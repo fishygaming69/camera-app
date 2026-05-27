@@ -4,23 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen">
 <title>Camera</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     width: 100%; height: 100%;
     background: #000;
-    font-family: sans-serif;
+    font-family: 'DM Sans', sans-serif;
     color: #fff;
     overflow: hidden;
     -webkit-tap-highlight-color: transparent;
+    user-select: none;
   }
 
-  /* ── screens ── */
   .screen { position: fixed; inset: 0; display: none; flex-direction: column; }
   .screen.active { display: flex; }
 
-  /* ── camera screen ── */
+  /* ── camera ── */
   #cameraScreen { background: #000; }
   #videoEl {
     position: absolute; inset: 0;
@@ -33,11 +36,16 @@
   }
   .cam-top {
     padding: 52px 24px 16px;
-    background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+    background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
     display: flex; justify-content: space-between; align-items: center;
   }
-  .cam-label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.45); }
-
+  .cam-label {
+    font-size: 11px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: rgba(255,255,255,0.45);
+  }
+  .cam-status {
+    font-size: 11px; color: rgba(255,255,255,0.35);
+  }
   .cam-bottom {
     padding: 24px 0 44px;
     background: linear-gradient(to top, rgba(0,0,0,0.72), transparent);
@@ -89,7 +97,49 @@
   }
   .flip-btn:active { background: rgba(255,255,255,0.2); }
 
-  .photo-label { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.3); }
+  .photo-label {
+    font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: rgba(255,255,255,0.3);
+  }
+
+  /* ── focus ring ── */
+  #focusRing {
+    position: absolute;
+    width: 76px; height: 76px;
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.4);
+    transition: opacity 0.15s ease, transform 0.2s cubic-bezier(0.25,0.46,0.45,0.94);
+  }
+  #focusRing.show {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  #focusRing.fade {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  /* corner pieces */
+  #focusRing::before, #focusRing::after,
+  #focusRing .fc2::before, #focusRing .fc2::after {
+    content: '';
+    position: absolute;
+    width: 16px; height: 16px;
+    border-color: rgba(255, 220, 60, 0.95);
+    border-style: solid;
+  }
+  #focusRing::before  { top: 0;    left: 0;  border-width: 2px 0 0 2px; }
+  #focusRing::after   { top: 0;    right: 0; border-width: 2px 2px 0 0; }
+  #focusRing .fc2::before { bottom: 0; left: 0;  border-width: 0 0 2px 2px; }
+  #focusRing .fc2::after  { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+  /* centre dot */
+  #focusRing .fcdot {
+    position: absolute; top: 50%; left: 50%;
+    width: 4px; height: 4px; border-radius: 50%;
+    background: rgba(255,220,60,0.8);
+    transform: translate(-50%,-50%);
+  }
 
   /* toast */
   #toast {
@@ -111,23 +161,7 @@
   }
   #shutterFlash.flash { opacity: 1; }
 
-  /* debug log */
-  #debugLog {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    background: rgba(0,0,0,0.85);
-    color: #0f0; font-size: 11px; font-family: monospace;
-    padding: 8px 12px; max-height: 180px; overflow-y: auto;
-    z-index: 200; line-height: 1.5;
-  }
-  #debugLog div { border-bottom: 0.5px solid rgba(255,255,255,0.08); padding: 2px 0; }
-  #debugLog div.err { color: #f66; }
-  #debugClose {
-    position: fixed; bottom: 0; right: 0;
-    background: #333; color: #fff; font-size: 11px;
-    padding: 4px 10px; cursor: pointer; z-index: 201;
-  }
-
-  /* ── preview screen ── */
+  /* ── preview ── */
   #previewScreen { background: #000; }
   #previewCanvas {
     position: absolute; inset: 0;
@@ -144,7 +178,7 @@
   .retake-btn {
     background: rgba(0,0,0,0.4); border: 0.5px solid rgba(255,255,255,0.2);
     border-radius: 100px; padding: 8px 18px;
-    font-size: 13px; font-family: sans-serif; color: #fff; cursor: pointer;
+    font-size: 13px; font-family: 'DM Sans', sans-serif; color: #fff; cursor: pointer;
     display: inline-flex; align-items: center; gap: 8px;
   }
   .preview-bottom {
@@ -154,7 +188,7 @@
   .next-btn {
     width: 100%; background: #fff; color: #000;
     border: none; border-radius: 16px; padding: 17px;
-    font-size: 16px; font-weight: 500; font-family: sans-serif;
+    font-size: 16px; font-weight: 500; font-family: 'DM Sans', sans-serif;
     cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;
   }
   .next-btn:active { opacity: 0.85; }
@@ -170,7 +204,7 @@
   .back-link {
     margin-top: 16px; font-size: 13px; color: rgba(255,255,255,0.4);
     cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
-    background: none; border: none; font-family: sans-serif;
+    background: none; border: none; font-family: 'DM Sans', sans-serif;
   }
 </style>
 </head>
@@ -183,14 +217,17 @@
 <div class="screen active" id="cameraScreen">
   <video id="videoEl" autoplay playsinline muted></video>
 
+  <!-- focus ring -->
+  <div id="focusRing"><div class="fc2"></div><div class="fcdot"></div></div>
+
   <div class="cam-overlay">
     <div class="cam-top">
       <span class="cam-label">Camera</span>
-      <span style="font-size:11px;color:rgba(255,255,255,0.35);" id="camStatus">Starting…</span>
+      <span class="cam-status" id="camStatus">Starting…</span>
     </div>
-
     <div class="cam-bottom">
       <div class="controls-row">
+        <!-- gallery blocked -->
         <div class="gallery-slot" id="galleryBtn">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
             <rect x="3" y="3" width="18" height="18" rx="3"/>
@@ -198,11 +235,11 @@
             <polyline points="21 15 16 10 5 21"/>
           </svg>
         </div>
-
+        <!-- shutter -->
         <div class="shutter-outer">
           <button id="shutterBtn" aria-label="Take photo"></button>
         </div>
-
+        <!-- flip -->
         <div class="flip-btn" id="flipBtn">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round">
             <path d="M1 4v6h6"/><path d="M23 20v-6h-6"/>
@@ -223,9 +260,7 @@
       <button class="retake-btn" id="retakeBtn">← Retake</button>
     </div>
     <div class="preview-bottom">
-      <button class="next-btn" id="nextBtn">
-        Next →
-      </button>
+      <button class="next-btn" id="nextBtn">Next →</button>
     </div>
   </div>
 </div>
@@ -237,89 +272,59 @@
   <button class="back-link" id="backToCamera">Start over</button>
 </div>
 
-<!-- DEBUG -->
-<div id="debugLog"></div>
-<div id="debugClose" onclick="document.getElementById('debugLog').style.display='none';this.style.display='none'">✕ hide log</div>
-
 <script>
-  // ── debug logger ──
-  const logEl = document.getElementById('debugLog');
-  function log(msg, isErr) {
-    const d = document.createElement('div');
-    if (isErr) d.className = 'err';
-    d.textContent = (new Date().toISOString().slice(11,23)) + '  ' + msg;
-    logEl.appendChild(d);
-    logEl.scrollTop = logEl.scrollHeight;
-    console.log(msg);
-  }
-
-  log('Page loaded. Protocol: ' + location.protocol);
-  log('UA: ' + navigator.userAgent.slice(0,80));
-  log('mediaDevices exists: ' + !!navigator.mediaDevices);
-
-  // ── screen switch ──
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
   }
+  function setStatus(t) { document.getElementById('camStatus').textContent = t; }
 
-  function setStatus(txt) {
-    document.getElementById('camStatus').textContent = txt;
-  }
-
-  // ── camera ──
   let stream = null;
   let facingMode = 'environment';
   const video = document.getElementById('videoEl');
 
   async function startCamera() {
-    setStatus('Requesting…');
-    log('startCamera() called, facingMode=' + facingMode);
+    setStatus('Starting…');
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
 
-    if (stream) {
-      stream.getTracks().forEach(t => { t.stop(); log('stopped track: ' + t.label); });
-      stream = null;
-    }
+    // Request the highest possible resolution
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: { ideal: facingMode },
+        width:  { ideal: 4096 },
+        height: { ideal: 2160 },
+        advanced: [
+          { width: 4096, height: 2160 },
+          { width: 3840, height: 2160 },
+          { width: 1920, height: 1080 }
+        ]
+      }
+    };
 
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      log('getUserMedia NOT supported on this browser/protocol', true);
-      setStatus('Not supported');
-      return;
-    }
-
-    // Attempt 1 – ideal facingMode
     try {
-      log('Attempt 1: facingMode ideal=' + facingMode);
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: facingMode } },
-        audio: false
-      });
-      log('Attempt 1 SUCCESS. Tracks: ' + stream.getVideoTracks().map(t=>t.label).join(', '));
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch(e) {
-      log('Attempt 1 FAILED: ' + e.name + ' – ' + e.message, true);
-
-      // Attempt 2 – plain video:true
+      // fallback — any camera, no resolution demand
       try {
-        log('Attempt 2: plain video:true');
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        log('Attempt 2 SUCCESS. Tracks: ' + stream.getVideoTracks().map(t=>t.label).join(', '));
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingMode } }, audio: false });
       } catch(e2) {
-        log('Attempt 2 FAILED: ' + e2.name + ' – ' + e2.message, true);
-        setStatus('Permission denied');
-        return;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        } catch(e3) {
+          setStatus('Permission denied'); return;
+        }
       }
     }
 
     video.srcObject = stream;
-    log('srcObject set');
-
     try {
       await video.play();
-      log('video.play() resolved. videoWidth=' + video.videoWidth + ' videoHeight=' + video.videoHeight);
-      setStatus('Live ✓');
+      const t = stream.getVideoTracks()[0];
+      const s = t.getSettings();
+      setStatus(s.width + '×' + s.height);
     } catch(e) {
-      log('video.play() FAILED: ' + e.name + ' – ' + e.message, true);
-      setStatus('Play failed');
+      setStatus('Error');
     }
   }
 
@@ -328,13 +333,62 @@
   // ── flip ──
   document.getElementById('flipBtn').addEventListener('click', () => {
     facingMode = facingMode === 'environment' ? 'user' : 'environment';
-    log('flip → ' + facingMode);
     startCamera();
   });
 
+  // ── tap to focus ──
+  const focusRing = document.getElementById('focusRing');
+  let focusTimer;
+
+  video.addEventListener('click', handleFocusTap);
+  // Also catch taps that land on the overlay (but not buttons)
+  document.getElementById('cameraScreen').addEventListener('click', e => {
+    if (e.target.closest('#shutterBtn, .gallery-slot, .flip-btn')) return;
+    handleFocusTap(e);
+  });
+
+  function handleFocusTap(e) {
+    if (!stream) return;
+    const x = e.clientX;
+    const y = e.clientY;
+
+    // Show focus ring at tap point
+    focusRing.style.left = x + 'px';
+    focusRing.style.top  = y + 'px';
+    focusRing.classList.remove('show', 'fade');
+    void focusRing.offsetWidth; // reflow
+    focusRing.classList.add('show');
+
+    clearTimeout(focusTimer);
+    focusTimer = setTimeout(() => {
+      focusRing.classList.remove('show');
+      focusRing.classList.add('fade');
+    }, 1200);
+
+    // Try to apply focus/exposure via ImageCapture if supported
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+
+    if (caps.focusMode && caps.focusMode.includes('manual') && typeof ImageCapture !== 'undefined') {
+      // Normalise tap point to 0–1
+      const nx = x / window.innerWidth;
+      const ny = y / window.innerHeight;
+      const constraints = { advanced: [{ focusMode: 'manual', pointsOfInterest: [{ x: nx, y: ny }] }] };
+      if (caps.exposureMode && caps.exposureMode.includes('manual')) {
+        constraints.advanced[0].exposureMode = 'manual';
+      }
+      track.applyConstraints(constraints).catch(() => {});
+    } else if (caps.focusMode && caps.focusMode.includes('continuous')) {
+      // Reset to continuous — effectively re-triggers autofocus
+      track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+    }
+  }
+
   // ── gallery blocked ──
   let toastTimer;
-  document.getElementById('galleryBtn').addEventListener('click', () => {
+  document.getElementById('galleryBtn').addEventListener('click', e => {
+    e.stopPropagation();
     const t = document.getElementById('toast');
     t.classList.add('show');
     clearTimeout(toastTimer);
@@ -342,23 +396,24 @@
   });
 
   // ── shutter ──
-  document.getElementById('shutterBtn').addEventListener('click', () => {
-    if (!stream) { log('shutter tapped but no stream', true); return; }
-    log('shutter tapped');
+  document.getElementById('shutterBtn').addEventListener('click', e => {
+    e.stopPropagation();
+    if (!stream) return;
 
     const flash = document.getElementById('shutterFlash');
     flash.classList.add('flash');
     setTimeout(() => flash.classList.remove('flash'), 130);
 
+    // Draw at full native resolution
     const canvas = document.getElementById('previewCanvas');
-    const vw = video.videoWidth  || 1280;
-    const vh = video.videoHeight || 720;
-    log('canvas size: ' + vw + 'x' + vh);
-    canvas.width = vw; canvas.height = vh;
+    const vw = video.videoWidth  || 1920;
+    const vh = video.videoHeight || 1080;
+    canvas.width  = vw;
+    canvas.height = vh;
 
     const ctx = canvas.getContext('2d');
     ctx.save();
-    if (facingMode === 'user') { ctx.translate(vw,0); ctx.scale(-1,1); }
+    if (facingMode === 'user') { ctx.translate(vw, 0); ctx.scale(-1, 1); }
     ctx.drawImage(video, 0, 0, vw, vh);
     ctx.restore();
 
@@ -368,16 +423,11 @@
     setTimeout(() => showScreen('previewScreen'), 100);
   });
 
-  // ── retake ──
   document.getElementById('retakeBtn').addEventListener('click', () => {
     showScreen('cameraScreen');
     startCamera();
   });
-
-  // ── next ──
   document.getElementById('nextBtn').addEventListener('click', () => showScreen('nextScreen'));
-
-  // ── back ──
   document.getElementById('backToCamera').addEventListener('click', () => {
     showScreen('cameraScreen');
     startCamera();
