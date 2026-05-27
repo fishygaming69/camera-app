@@ -330,8 +330,8 @@
 
     video.srcObject = stream;
 
-    // Mirror video for front camera
-    video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'none';
+    // Mirror the live preview for front camera only
+    video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
 
     try {
       await video.play();
