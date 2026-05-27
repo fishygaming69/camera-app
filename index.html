@@ -281,34 +281,45 @@
 
   let stream = null;
   let facingMode = 'environment';
+  let deviceIds = { environment: null, user: null }; // cache exact device IDs
   const video = document.getElementById('videoEl');
+
+  // Enumerate cameras once to get exact deviceIds — much more reliable than facingMode alone
+  async function getCameraDeviceId(facing) {
+    if (deviceIds[facing]) return deviceIds[facing];
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter(d => d.kind === 'videoinput');
+      // On Android: typically index 0 = back, last = front
+      if (facing === 'environment') {
+        deviceIds.environment = cameras[0]?.deviceId || null;
+      } else {
+        deviceIds.user = cameras[cameras.length - 1]?.deviceId || null;
+      }
+    } catch(e) {}
+    return deviceIds[facing];
+  }
 
   async function startCamera() {
     setStatus('Starting…');
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
 
-    // Request the highest possible resolution
-    const constraints = {
-      audio: false,
-      video: {
-        facingMode: { ideal: facingMode },
-        width:  { ideal: 4096 },
-        height: { ideal: 2160 },
-        advanced: [
-          { width: 4096, height: 2160 },
-          { width: 3840, height: 2160 },
-          { width: 1920, height: 1080 }
-        ]
-      }
-    };
+    const deviceId = await getCameraDeviceId(facingMode);
+
+    // Build constraints — prefer exact deviceId, fall back to facingMode
+    const videoConstraints = deviceId
+      ? { deviceId: { exact: deviceId }, width: { ideal: 4096 }, height: { ideal: 2160 } }
+      : { facingMode: { exact: facingMode }, width: { ideal: 4096 }, height: { ideal: 2160 } };
 
     try {
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
     } catch(e) {
-      // fallback — any camera, no resolution demand
+      // relax resolution
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingMode } }, audio: false });
+        const relaxed = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: facingMode } };
+        stream = await navigator.mediaDevices.getUserMedia({ video: relaxed, audio: false });
       } catch(e2) {
+        // last resort — any camera
         try {
           stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         } catch(e3) {
@@ -318,11 +329,15 @@
     }
 
     video.srcObject = stream;
+
+    // Mirror video for front camera
+    video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'none';
+
     try {
       await video.play();
       const t = stream.getVideoTracks()[0];
       const s = t.getSettings();
-      setStatus(s.width + '×' + s.height);
+      setStatus((s.width || '?') + '×' + (s.height || '?'));
     } catch(e) {
       setStatus('Error');
     }
@@ -352,37 +367,60 @@
     const x = e.clientX;
     const y = e.clientY;
 
-    // Show focus ring at tap point
+    // Show focus ring
     focusRing.style.left = x + 'px';
     focusRing.style.top  = y + 'px';
     focusRing.classList.remove('show', 'fade');
-    void focusRing.offsetWidth; // reflow
+    void focusRing.offsetWidth;
     focusRing.classList.add('show');
 
     clearTimeout(focusTimer);
     focusTimer = setTimeout(() => {
       focusRing.classList.remove('show');
       focusRing.classList.add('fade');
-    }, 1200);
+    }, 1800);
 
-    // Try to apply focus/exposure via ImageCapture if supported
     const track = stream.getVideoTracks()[0];
-    if (!track) return;
-    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    if (!track || !track.getCapabilities) return;
+    const caps = track.getCapabilities();
 
-    if (caps.focusMode && caps.focusMode.includes('manual') && typeof ImageCapture !== 'undefined') {
-      // Normalise tap point to 0–1
-      const nx = x / window.innerWidth;
-      const ny = y / window.innerHeight;
-      const constraints = { advanced: [{ focusMode: 'manual', pointsOfInterest: [{ x: nx, y: ny }] }] };
-      if (caps.exposureMode && caps.exposureMode.includes('manual')) {
-        constraints.advanced[0].exposureMode = 'manual';
+    // Normalise to 0–1 range
+    const nx = x / window.innerWidth;
+    const ny = y / window.innerHeight;
+
+    const advanced = [{}];
+
+    // Focus point — singleShot is what native camera apps use; falls back to continuous
+    if (caps.focusMode) {
+      if (caps.focusMode.includes('single-shot')) {
+        advanced[0].focusMode = 'single-shot';
+      } else if (caps.focusMode.includes('continuous')) {
+        advanced[0].focusMode = 'continuous';
       }
-      track.applyConstraints(constraints).catch(() => {});
-    } else if (caps.focusMode && caps.focusMode.includes('continuous')) {
-      // Reset to continuous — effectively re-triggers autofocus
-      track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
     }
+    if (caps.pointsOfInterest) {
+      advanced[0].pointsOfInterest = [{ x: nx, y: ny }];
+    }
+
+    // Exposure point
+    if (caps.exposureMode) {
+      if (caps.exposureMode.includes('single-shot')) {
+        advanced[0].exposureMode = 'single-shot';
+      } else if (caps.exposureMode.includes('continuous')) {
+        advanced[0].exposureMode = 'continuous';
+      }
+    }
+    if (caps.exposureCompensation) {
+      // reset exposure compensation to neutral
+      advanced[0].exposureCompensation = 0;
+    }
+
+    // White balance
+    if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes('continuous')) {
+      advanced[0].whiteBalanceMode = 'continuous';
+    }
+
+    track.applyConstraints({ advanced }).catch(() => {});
   }
 
   // ── gallery blocked ──
